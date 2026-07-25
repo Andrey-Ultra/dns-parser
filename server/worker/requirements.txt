@@ -1,0 +1,6 @@
+camoufox[geoip]==0.4.11
+playwright==1.53.0
+beautifulsoup4
+lxml
+loguru
+redis
