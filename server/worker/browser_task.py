@@ -108,7 +108,7 @@ def human_scroll_to_bottom(page, stall_timeout=90):
 def get_catalog_page(page, url):
     logger.info("Старт прокрутки каталога")
 
-    page.goto(url + "?mode=tile", wait_until="domcontentloaded", timeout=30000)
+    page.goto(url + "?shop-catalog=2265&mode=tile", wait_until="domcontentloaded", timeout=30000)
     page.evaluate("document.body.style.zoom = '0.25'")
     human_scroll_to_bottom(page)
 
