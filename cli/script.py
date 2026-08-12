@@ -8,7 +8,7 @@ import redis
 import requests
 
 HOST = "YOUR host"
-BASE_URL = f"http://{HOST}:9000"
+BASE_URL = f"http://{HOST}:9001"
 RED = redis.Redis(host=HOST, port=6379, decode_responses=True)
 QNAME = "tasks"
 DELIMITER = ";"
