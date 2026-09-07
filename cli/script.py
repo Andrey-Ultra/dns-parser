@@ -60,6 +60,10 @@ def get_result(urls: list[str]):
 
 
 def do_task(urls: list[str]):
+    RED.delete(QNAME)
+    stale_keys = list(RED.scan_iter("result:*"))
+    if stale_keys:
+        RED.delete(*stale_keys)
     add_tasks(urls)
     wait_finishing(urls)
     return get_result(urls)
