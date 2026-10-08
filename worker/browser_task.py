@@ -13,7 +13,7 @@ CURRENT_PATH = (
 )
 
 
-def scroll_to_bottom(page, timeout=300, max_idle=15):
+def scroll_to_bottom(page, timeout=600, max_idle=15):
     """Крутит колесо, пока высота страницы не перестанет расти max_idle шагов подряд."""
     page.bring_to_front()
     best = page.evaluate("document.body.scrollHeight")
