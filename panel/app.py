@@ -30,6 +30,7 @@ ACTIVE = ("in queue", "in work")
 stm = Client(STM_URL)
 lock = threading.Lock()
 tasks: list[dict] = []  # {"url", "id" (id в stm), "status", "products"}
+generation = 0  # растёт при каждой замене списка: опрос старого списка отбрасываем
 queue_error: str | None = None
 
 
@@ -49,23 +50,45 @@ def check(task: dict) -> dict:
         if status != "complete":
             return {"status": status}
         return {"status": "done", "products": json.loads(stm.answer(task["id"]))}
-    except TaskNotFound:          # stm перезапускали или задачу отменили
+    except TaskNotFound:          # stm забыл задачу: контейнер очереди перезапускали
         return {"status": "lost"}
     except (TypeError, ValueError):  # ответа нет или он не JSON
         return {"status": "error"}
+
+
+def cancel_quietly(task_id: int):
+    try:
+        stm.cancel(task_id)
+    except TaskNotFound:
+        pass
+
+
+def resubmit_active():
+    """stm хранит задачи в памяти, после его перезапуска старые id ничего не значат
+    (и могут совпасть с новыми). Снимаем старые id и ставим все незавершённые задачи заново."""
+    active = [t for t in tasks if t["status"] in ACTIVE]
+    for t in active:
+        cancel_quietly(t["id"])
+    for t in active:
+        t.update(id=stm.submit(t["url"]), status="in queue")
 
 
 def poll_tasks():
     global queue_error
     while True:
         with lock:
-            pending = [t for t in tasks if t["status"] in ACTIVE]
+            gen, pending = generation, [t for t in tasks if t["status"] in ACTIVE]
         try:
-            for t in pending:
-                update = check(t)
-                with lock:
-                    t.update(update)
-                    if t["status"] not in ACTIVE:
+            updates = [(t, check(t)) for t in pending]
+            with lock:
+                if gen == generation:
+                    for t, update in updates:
+                        if update["status"] != "lost":
+                            t.update(update)
+                    lost = any(u["status"] == "lost" for _, u in updates)
+                    if lost:
+                        resubmit_active()
+                    if lost or any(t["status"] not in ACTIVE for t, _ in updates):
                         save()
             queue_error = None
         except STMError as e:
@@ -77,6 +100,9 @@ def poll_tasks():
 async def lifespan(_):
     if STATE_FILE.exists():
         tasks.extend(json.loads(STATE_FILE.read_text()))
+    for t in tasks:  # «потерянные» из старых версий панели — пусть опрос поставит их заново
+        if t["status"] == "lost":
+            t["status"] = "in queue"
     threading.Thread(target=poll_tasks, daemon=True).start()
     yield
 
@@ -163,14 +189,13 @@ def replace_tasks(text: str = Body(..., embed=True)):
     if bad:
         raise HTTPException(400, "Это не ссылки: " + ", ".join(bad))
 
+    global generation
     with lock:
+        generation += 1
         try:
             for t in tasks:
                 if t["status"] in ACTIVE:
-                    try:
-                        stm.cancel(t["id"])
-                    except TaskNotFound:
-                        pass
+                    cancel_quietly(t["id"])
             tasks.clear()
             for url in urls:
                 tasks.append({"url": url, "id": stm.submit(url), "status": "in queue", "products": None})

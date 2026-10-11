@@ -116,6 +116,7 @@
               placeholder="https://www.dns-shop.ru/catalog/… — по одной ссылке на строку"></textarea>
     <div class="row">
       <button class="primary" id="task-send">Отправить на выполнение</button>
+      <label class="btn">Загрузить из .txt<input type="file" id="task-file" accept=".txt,text/plain" hidden></label>
       <a class="btn" id="csv" href="/api/results.csv" download>Скачать CSV</a>
       <span class="msg" id="task-msg"></span>
       <span class="spacer"></span>
@@ -137,7 +138,6 @@ const TASK_STATUS = {
   "in queue": ["в очереди", "muted"],
   "in work": ["в работе", "info"],
   "done": ["готово", "ok"],
-  "lost": ["потеряна", "err"],
   "error": ["ошибка ответа", "err"],
 };
 const WORKER_STATUS = {
@@ -269,6 +269,17 @@ async function refreshTasks() {
     banner.hidden = false;
   }
 }
+
+// Файл только заполняет поле: дальше можно поправить руками и отправить как обычно
+$("#task-file").onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";  // чтобы тот же файл можно было выбрать ещё раз
+  if (!file) return;
+  const text = (await file.text()).trim();
+  $("#task-text").value = text;
+  const count = text.split(/\r?\n/).filter((line) => line.trim()).length;
+  flash($("#task-msg"), `Из ${file.name} загружено ссылок: ${count}`);
+};
 
 $("#task-send").onclick = () => withButton($("#task-send"), async () => {
   const hasTasks = $("#task-rows").children.length > 0;

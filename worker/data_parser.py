@@ -85,4 +85,9 @@ def get_product_data(html):
 
     print("Всего товаров", len(products_list))
 
+    # цена 0 = цены не догрузились, такой результат отдавать нельзя
+    zero = [p["product_id"] for p in products_list if p["price"] == 0]
+    if zero:
+        raise InvalidHtml(f"Цена 0 у {len(zero)} из {len(products_list)} товаров (например {zero[0]}): страница не догрузилась")
+
     return products_list
