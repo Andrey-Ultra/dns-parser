@@ -22,6 +22,7 @@ PROXY_GIVER_URL = os.getenv("PROXY_GIVER_URL", "http://localhost:9001")
 WORKER_IMAGE = os.getenv("WORKER_IMAGE", "dns-parser-worker")
 WORKER_NETWORK = os.getenv("WORKER_NETWORK", "dns-parser")
 STATE_FILE = Path(os.getenv("DATA_DIR", "data")) / "tasks.json"
+LISTS_FILE = STATE_FILE.with_name("lists.json")  # тексты полей «полный» и «короткий» список
 
 WORKER_LABEL = "dns-parser.role"
 PROXY_RE = re.compile(r"^[\d.]+:\d+:[^:\s]+:[^:\s]+$")
@@ -202,6 +203,26 @@ def replace_tasks(text: str = Body(..., embed=True)):
         finally:
             save()
     return get_tasks()
+
+
+@app.get("/api/lists")
+def get_lists():
+    saved = json.loads(LISTS_FILE.read_text()) if LISTS_FILE.exists() else {}
+    return {"full": saved.get("full", ""), "short": saved.get("short", "")}
+
+
+@app.put("/api/lists/{name}")
+def save_list(name: str, text: str = Body(..., embed=True)):
+    if name not in ("full", "short"):
+        raise HTTPException(404, f"Нет списка {name}")
+    with lock:
+        lists = get_lists()
+        lists[name] = text
+        LISTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = LISTS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(lists, ensure_ascii=False))
+        tmp.replace(LISTS_FILE)
+    return lists
 
 
 @app.get("/api/results.csv")

@@ -38,6 +38,9 @@
              border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
              font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
   textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .list + .list { margin-top: 16px; }
+  h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+  h3 .saved { font-weight: 400; font-size: 12px; }
   .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
   .spacer { flex: 1; }
   button, .btn { font: inherit; cursor: pointer; border-radius: 7px; padding: 6px 12px; text-decoration: none;
@@ -112,13 +115,26 @@
 
   <section class="card wide">
     <h2>Задачи <span class="pill" id="task-count">0</span></h2>
-    <textarea id="task-text" spellcheck="false"
-              placeholder="https://www.dns-shop.ru/catalog/… — по одной ссылке на строку"></textarea>
+    <div class="list" data-list="full">
+      <h3>Полный список <span class="pill">0</span> <span class="muted saved"></span></h3>
+      <textarea spellcheck="false"
+                placeholder="https://www.dns-shop.ru/catalog/… — по одной ссылке на строку"></textarea>
+      <div class="row">
+        <button class="primary send">Отправить на выполнение</button>
+        <span class="msg"></span>
+      </div>
+    </div>
+    <div class="list" data-list="short">
+      <h3>Короткий список <span class="pill">0</span> <span class="muted saved"></span></h3>
+      <textarea spellcheck="false"
+                placeholder="https://www.dns-shop.ru/catalog/… — по одной ссылке на строку"></textarea>
+      <div class="row">
+        <button class="primary send">Отправить на выполнение</button>
+        <span class="msg"></span>
+      </div>
+    </div>
     <div class="row">
-      <button class="primary" id="task-send">Отправить на выполнение</button>
-      <label class="btn">Загрузить из .txt<input type="file" id="task-file" accept=".txt,text/plain" hidden></label>
       <a class="btn" id="csv" href="/api/results.csv" download>Скачать CSV</a>
-      <span class="msg" id="task-msg"></span>
       <span class="spacer"></span>
       <span class="muted" id="task-progress"></span>
       <div class="bar"><div id="task-bar"></div></div>
@@ -230,8 +246,6 @@ $("#proxy-save").onclick = () => withButton($("#proxy-save"), async () => {
 
 // ------------ ЗАДАЧИ ------------
 
-let tasksShown = false;
-
 function renderTasks(d) {
   if (!changed("tasks", d)) return;
   const rows = d.tasks.map((t) => {
@@ -257,10 +271,6 @@ async function refreshTasks() {
   const banner = $("#queue-error");
   try {
     const d = await api("GET", "/api/tasks");
-    if (!tasksShown) {
-      $("#task-text").value = d.tasks.map((t) => t.url).join("\n");
-      tasksShown = true;
-    }
     renderTasks(d);
     banner.textContent = d.queue_error || "";
     banner.hidden = !d.queue_error;
@@ -270,26 +280,52 @@ async function refreshTasks() {
   }
 }
 
-// Файл только заполняет поле: дальше можно поправить руками и отправить как обычно
-$("#task-file").onchange = async (e) => {
-  const file = e.target.files[0];
-  e.target.value = "";  // чтобы тот же файл можно было выбрать ещё раз
-  if (!file) return;
-  const text = (await file.text()).trim();
-  $("#task-text").value = text;
-  const count = text.split(/\r?\n/).filter((line) => line.trim()).length;
-  flash($("#task-msg"), `Из ${file.name} загружено ссылок: ${count}`);
-};
+// Два списка ссылок: текст сохраняется на сервере, поэтому переживает обновление страницы
+const countLines = (text) => text.split(/\r?\n/).filter((line) => line.trim()).length;
 
-$("#task-send").onclick = () => withButton($("#task-send"), async () => {
-  const hasTasks = $("#task-rows").children.length > 0;
-  if (hasTasks && !confirm("Текущие задачи и их результаты будут удалены. Отправить новый список?")) return;
+for (const box of document.querySelectorAll(".list")) {
+  const name = box.dataset.list;
+  const text = box.querySelector("textarea");
+  const msg = box.querySelector(".msg");
+  const send = box.querySelector(".send");
+  const saved = box.querySelector(".saved");
+  let timer;
+
+  const updateCount = () => { box.querySelector(".pill").textContent = countLines(text.value); };
+
+  async function saveList() {
+    clearTimeout(timer);
+    try {
+      await api("PUT", `/api/lists/${name}`, { text: text.value });
+      saved.textContent = "сохранено";
+    } catch (e) { saved.textContent = ""; flash(msg, "Не сохранилось: " + e.message, "err"); }
+  }
+
+  text.oninput = () => {
+    updateCount();
+    saved.textContent = "…";
+    clearTimeout(timer);
+    timer = setTimeout(saveList, 500);
+  };
+  box.load = (value) => { text.value = value; updateCount(); };
+
+  send.onclick = () => withButton(send, async () => {
+    const hasTasks = $("#task-rows").children.length > 0;
+    if (hasTasks && !confirm("Текущие задачи и их результаты будут удалены. Отправить новый список?")) return;
+    try {
+      const d = await api("POST", "/api/tasks", { text: text.value });
+      renderTasks(d);
+      flash(msg, `Отправлено задач: ${d.total}`);
+    } catch (e) { flash(msg, e.message, "err"); }
+  });
+}
+
+async function loadLists() {
   try {
-    const d = await api("POST", "/api/tasks", { text: $("#task-text").value });
-    renderTasks(d);
-    flash($("#task-msg"), `Отправлено задач: ${d.total}`);
-  } catch (e) { flash($("#task-msg"), e.message, "err"); }
-});
+    const d = await api("GET", "/api/lists");
+    for (const box of document.querySelectorAll(".list")) box.load(d[box.dataset.list]);
+  } catch (e) { flash(document.querySelector(".list .msg"), e.message, "err"); }
+}
 
 // ------------ ВОРКЕРЫ ------------
 
@@ -366,6 +402,7 @@ $("#logs-close").onclick = closeLogs;
 // ------------ СТАРТ ------------
 
 loadProxies();
+loadLists();
 refreshTasks();
 refreshWorkers();
 setInterval(refreshTasks, 2000);
